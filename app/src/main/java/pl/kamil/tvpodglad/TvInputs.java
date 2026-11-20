@@ -75,19 +75,29 @@ final class TvInputs {
         }
     }
 
-    /** Wybór automatyczny: tuner naziemny, jeśli da się go rozpoznać, w przeciwnym razie pierwszy tuner. */
+    /**
+     * Wybór automatyczny: sprzętowy tuner cyfrowy (DTV) producenta TV.
+     * Pomija "tunery" aplikacji (Filmy Google Play, SkyShowtime - podglądy wideo).
+     */
     static String defaultTunerId(Context c) {
-        String firstTuner = null;
+        String best = null;
+        int bestScore = Integer.MIN_VALUE;
         for (TvInputInfo i : inputs(c)) {
             if (i.getType() != TvInputInfo.TYPE_TUNER) continue;
-            if (firstTuner == null) firstTuner = i.getId();
             String s = (i.getId() + " " + label(c, i)).toLowerCase(Locale.ROOT);
-            if (s.contains("terr") || s.contains("dvb-t") || s.contains("dvbt") || s.contains("anten")
-                    || s.contains("naziem")) {
-                return i.getId();
+            int score = 0;
+            if (s.contains("preview") || s.contains("com.google.android.videos")) score -= 100;
+            if (s.contains("mediatek") || s.contains("droidtv") || s.contains("philips") || s.contains("tpvision")) score += 20;
+            if (s.contains("tunerinputservice")) score += 10;
+            if (s.contains("dtv") || s.contains("dvb") || s.contains("terr") || s.contains("anten") || s.contains("naziem")) score += 30;
+            if (s.contains("atv") || s.contains("analog")) score -= 20;
+            if (s.contains("sat") || s.contains("cable") || s.contains("kabl")) score -= 5;
+            if (score > bestScore) {
+                bestScore = score;
+                best = i.getId();
             }
         }
-        return firstTuner;
+        return best;
     }
 
     static String effectiveInput(Context c) {
@@ -138,7 +148,10 @@ final class TvInputs {
 
     /** JSON z wejściami i kanałami - diagnostyka (/tv/inputs). */
     static String json(Context c) {
-        StringBuilder sb = new StringBuilder("{\"selected\":").append(q(effectiveInput(c))).append(",\"inputs\":[");
+        boolean perm = c.checkSelfPermission("com.android.providers.tv.permission.READ_EPG_DATA")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        StringBuilder sb = new StringBuilder("{\"selected\":").append(q(effectiveInput(c)))
+                .append(",\"epgPermission\":").append(perm).append(",\"inputs\":[");
         boolean first = true;
         for (TvInputInfo i : inputs(c)) {
             if (!first) sb.append(',');
