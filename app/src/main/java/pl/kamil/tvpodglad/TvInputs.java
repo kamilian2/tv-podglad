@@ -40,7 +40,7 @@ final class TvInputs {
         try {
             return m.getTvInputList();
         } catch (Exception e) {
-            Log.w(CaptureService.TAG, "getTvInputList", e);
+            Log.w(Config.TAG, "getTvInputList", e);
             return Collections.emptyList();
         }
     }
@@ -110,7 +110,7 @@ final class TvInputs {
                 }
             }
         } catch (Exception e) {
-            Log.w(CaptureService.TAG, "Brak dostępu do listy kanałów: " + e);
+            Log.w(Config.TAG, "Brak dostępu do listy kanałów: " + e);
         }
         Collections.sort(out, (a, b) -> compareNumbers(a.number, b.number));
         return out;

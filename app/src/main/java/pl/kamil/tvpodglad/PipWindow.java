@@ -26,7 +26,7 @@ import java.util.List;
  * Rysowane jako nakładka usługi ułatwień dostępu - nie zabiera fokusu, pilot dalej steruje HDMI.
  */
 final class PipWindow {
-    private static final String TAG = CaptureService.TAG;
+    private static final String TAG = Config.TAG;
 
     private final Context ctx;
     private final WindowManager wm;

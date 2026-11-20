@@ -22,6 +22,7 @@ public class KeyService extends AccessibilityService {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private PipWindow pip;
+    private HttpServer server;
 
     static boolean isEnabled() {
         return instance != null;
@@ -32,7 +33,11 @@ public class KeyService extends AccessibilityService {
         super.onServiceConnected();
         pip = new PipWindow(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY);
         instance = this;
-        Log.i(CaptureService.TAG, "KeyService połączony, przycisk = " + Prefs.keyName(Prefs.key(this)));
+        if (Config.PORT > 0) {
+            server = new HttpServer(this, Config.PORT);
+            server.start();
+        }
+        Log.i(Config.TAG, "KeyService połączony, przycisk = " + Prefs.keyName(Prefs.key(this)));
     }
 
     @Override
@@ -46,6 +51,7 @@ public class KeyService extends AccessibilityService {
     @Override
     public void onDestroy() {
         instance = null;
+        if (server != null) server.shutdown();
         if (pip != null) pip.hide();
         super.onDestroy();
     }

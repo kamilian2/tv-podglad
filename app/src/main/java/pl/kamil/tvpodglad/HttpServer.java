@@ -1,5 +1,6 @@
 package pl.kamil.tvpodglad;
 
+import android.content.Context;
 import android.util.Log;
 
 import java.io.BufferedOutputStream;
@@ -13,30 +14,21 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Minimalny serwer HTTP bez zewnętrznych bibliotek.
- *   /              strona z podglądem (na telefon)
- *   /snapshot.jpg  pojedynczy zrzut ekranu
- *   /stream.mjpg   strumień MJPEG (przeglądarka, Home Assistant, VLC)
- *   /status        JSON ze stanem
- *   /pip/toggle|show|hide|next|prev|status  okienko TV naziemnej
- *   /tv/inputs     diagnostyka: wejścia TV i kanały
+ * Mały serwer HTTP do sterowania okienkiem (np. z Home Assistanta):
+ *   /pip/toggle|show|hide|next|prev|status
+ *   /tv/inputs   diagnostyka: wejścia TV i kanały
+ *   /            prosta strona z przyciskami
  */
 final class HttpServer extends Thread {
-    private static final String TAG = CaptureService.TAG;
-    private static final int MAX_STREAMS = 4;
-
+    private final Context ctx;
     private final int port;
-    private final FrameStore store;
-    private final android.content.Context ctx;
     private volatile boolean stopped;
     private volatile ServerSocket serverSocket;
-    private int activeStreams;
 
-    HttpServer(android.content.Context ctx, int port, FrameStore store) {
+    HttpServer(Context ctx, int port) {
         super("http-server");
         this.ctx = ctx.getApplicationContext();
         this.port = port;
-        this.store = store;
         setDaemon(true);
     }
 
@@ -47,7 +39,7 @@ final class HttpServer extends Thread {
             ss.setReuseAddress(true);
             ss.bind(new InetSocketAddress(port));
             serverSocket = ss;
-            Log.i(TAG, "Serwer HTTP na porcie " + port);
+            Log.i(Config.TAG, "Serwer HTTP na porcie " + port);
             while (!stopped) {
                 Socket s = ss.accept();
                 Thread t = new Thread(() -> handle(s), "http-client");
@@ -55,7 +47,7 @@ final class HttpServer extends Thread {
                 t.start();
             }
         } catch (IOException e) {
-            if (!stopped) Log.e(TAG, "Serwer HTTP padł", e);
+            if (!stopped) Log.e(Config.TAG, "Serwer HTTP padł", e);
         }
     }
 
@@ -70,7 +62,6 @@ final class HttpServer extends Thread {
     private void handle(Socket s) {
         try (Socket socket = s) {
             socket.setSoTimeout(10000);
-            socket.setTcpNoDelay(true);
             InputStream in = socket.getInputStream();
             String requestLine = readLine(in);
             if (requestLine == null) return;
@@ -80,140 +71,61 @@ final class HttpServer extends Thread {
             }
             String[] parts = requestLine.split(" ");
             if (parts.length < 2) return;
-            String target = parts[1];
-            String path = target;
+            String path = parts[1];
             String query = "";
-            int q = target.indexOf('?');
+            int q = path.indexOf('?');
             if (q >= 0) {
-                path = target.substring(0, q);
-                query = target.substring(q + 1);
+                query = path.substring(q + 1);
+                path = path.substring(0, q);
             }
-
-            OutputStream out = new BufferedOutputStream(socket.getOutputStream(), 64 * 1024);
+            OutputStream out = new BufferedOutputStream(socket.getOutputStream());
 
             if (!Config.ACCESS_KEY.isEmpty() && !Config.ACCESS_KEY.equals(param(query, "key"))) {
-                sendText(out, 403, "text/plain", "Brak dostępu - dopisz ?key=...");
+                send(out, 403, "text/plain", "Brak dostępu - dopisz ?key=...");
                 return;
             }
 
-            switch (path) {
-                case "/":
-                case "/index.html":
-                    sendText(out, 200, "text/html; charset=utf-8", WebPage.html(query));
-                    break;
-                case "/snapshot.jpg":
-                case "/screenshot.jpg":
-                case "/shot.jpg":
-                    sendSnapshot(out, query.contains("download"));
-                    break;
-                case "/stream.mjpg":
-                case "/video":
-                    socket.setSoTimeout(0);
-                    sendStream(out);
-                    break;
-                case "/pip/toggle":
-                case "/pip/show":
-                case "/pip/hide":
-                case "/pip/next":
-                case "/pip/prev":
-                case "/pip/status": {
-                    String r = KeyService.command(path.substring(5));
-                    if (r == null) {
-                        sendText(out, 503, "application/json",
-                                "{\"error\":\"usluga ulatwien dostepu TV Podglad jest wylaczona\"}");
-                    } else {
-                        sendText(out, 200, "application/json", r);
-                    }
-                    break;
-                }
-                case "/tv/inputs":
-                    sendText(out, 200, "application/json; charset=utf-8", TvInputs.json(ctx));
-                    break;
-                case "/status":
-                    sendText(out, 200, "application/json", statusJson());
-                    break;
-                default:
-                    sendText(out, 404, "text/plain", "404");
+            if (path.startsWith("/pip/")) {
+                String r = KeyService.command(path.substring(5));
+                if (r == null) send(out, 503, "application/json", "{\"error\":\"usluga przycisku wylaczona\"}");
+                else send(out, 200, "application/json; charset=utf-8", r);
+            } else if (path.equals("/tv/inputs")) {
+                send(out, 200, "application/json; charset=utf-8", TvInputs.json(ctx));
+            } else if (path.equals("/")) {
+                send(out, 200, "text/html; charset=utf-8", page(query));
+            } else {
+                send(out, 404, "text/plain", "404");
             }
-        } catch (Exception e) {
-            // klient się rozłączył itp. - normalne
+        } catch (Exception ignored) {
+            // klient się rozłączył itp.
         }
     }
 
-    private void sendSnapshot(OutputStream out, boolean download) throws IOException, InterruptedException {
-        FrameStore.Snap f = store.current();
-        if (f == null) f = store.awaitNewer(0, 2000);
-        if (f == null) {
-            sendText(out, 503, "text/plain", "Brak obrazu - czy przechwytywanie jest uruchomione?");
-            return;
-        }
-        StringBuilder h = new StringBuilder();
-        h.append("HTTP/1.1 200 OK\r\n")
-                .append("Content-Type: image/jpeg\r\n")
-                .append("Content-Length: ").append(f.jpeg.length).append("\r\n")
-                .append("Cache-Control: no-cache, no-store, must-revalidate\r\n")
-                .append("Access-Control-Allow-Origin: *\r\n");
-        if (download) {
-            h.append("Content-Disposition: attachment; filename=\"tv-")
-                    .append(System.currentTimeMillis()).append(".jpg\"\r\n");
-        }
-        h.append("Connection: close\r\n\r\n");
-        out.write(h.toString().getBytes(StandardCharsets.US_ASCII));
-        out.write(f.jpeg);
-        out.flush();
+    private static String page(String query) {
+        String key = param(query, "key");
+        String k = (key == null || key.isEmpty()) ? "" : "?key=" + key.replaceAll("[^A-Za-z0-9_-]", "");
+        return "<!DOCTYPE html><html lang=\"pl\"><head><meta charset=\"utf-8\">"
+                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>TV – okienko</title>"
+                + "<style>body{margin:0;padding:16px;background:#0b1520;color:#e6eef6;font-family:system-ui,sans-serif}"
+                + "button{display:block;width:100%;margin:8px 0;padding:16px;border:0;border-radius:8px;"
+                + "background:#2e86de;color:#fff;font-size:17px}#s{font-size:13px;color:#8fa6bb;white-space:pre-wrap}</style>"
+                + "</head><body><h2>Okienko TV naziemnej</h2>"
+                + "<button onclick=\"c('toggle')\">Pokaż / ukryj</button>"
+                + "<button onclick=\"c('next')\">Kanał +</button>"
+                + "<button onclick=\"c('prev')\">Kanał −</button>"
+                + "<div id=\"s\"></div><script>var K='" + k + "';"
+                + "function c(x){fetch('/pip/'+x+K).then(function(r){return r.text()})"
+                + ".then(function(t){document.getElementById('s').textContent=t})}c('status');</script></body></html>";
     }
 
-    private void sendStream(OutputStream out) throws IOException, InterruptedException {
-        synchronized (this) {
-            if (activeStreams >= MAX_STREAMS) {
-                sendText(out, 503, "text/plain", "Za dużo jednoczesnych podglądów");
-                return;
-            }
-            activeStreams++;
-        }
-        try {
-            out.write(("HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n"
-                    + "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-                    + "Pragma: no-cache\r\n"
-                    + "Access-Control-Allow-Origin: *\r\n"
-                    + "Connection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
-            out.flush();
-            long lastSeq = -1;
-            while (!stopped && CaptureService.running) {
-                // czekamy na nową klatkę; co 3 s wysyłamy tę samą (podtrzymanie połączenia)
-                FrameStore.Snap f = store.awaitNewer(lastSeq, 3000);
-                if (f == null) continue;
-                lastSeq = f.seq;
-                out.write(("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                        + f.jpeg.length + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
-                out.write(f.jpeg);
-                out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
-                out.flush();
-            }
-        } finally {
-            synchronized (this) {
-                activeStreams--;
-            }
-        }
-    }
-
-    private String statusJson() {
-        return "{\"running\":" + CaptureService.running
-                + ",\"width\":" + store.width()
-                + ",\"height\":" + store.height()
-                + ",\"frame\":" + store.seq()
-                + ",\"frameAgeMs\":" + store.frameAgeMs()
-                + ",\"fps\":" + Config.FPS + "}";
-    }
-
-    private static void sendText(OutputStream out, int code, String type, String body) throws IOException {
+    private static void send(OutputStream out, int code, String type, String body) throws IOException {
         byte[] b = body.getBytes(StandardCharsets.UTF_8);
         String reason = code == 200 ? "OK" : code == 403 ? "Forbidden" : code == 404 ? "Not Found" : "Service Unavailable";
         String h = "HTTP/1.1 " + code + " " + reason + "\r\n"
                 + "Content-Type: " + type + "\r\n"
                 + "Content-Length: " + b.length + "\r\n"
                 + "Cache-Control: no-cache\r\n"
+                + "Access-Control-Allow-Origin: *\r\n"
                 + "Connection: close\r\n\r\n";
         out.write(h.getBytes(StandardCharsets.US_ASCII));
         out.write(b);
@@ -236,7 +148,6 @@ final class HttpServer extends Thread {
         return null;
     }
 
-    /** Czyta linię zakończoną \r\n (ASCII). Max 8 KB. */
     private static String readLine(InputStream in) throws IOException {
         StringBuilder sb = new StringBuilder();
         int c;
