@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Baner 320x180 dla launchera Android TV: ekran TV z "okiem" podglądu -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#FF14212E" android:pathData="M0,0h320v180h-320z" />
+    <!-- obudowa TV -->
+    <path android:fillColor="#FF2E86DE" android:pathData="M90,35h140a8,8 0,0 1,8 8v80a8,8 0,0 1,-8 8h-140a8,8 0,0 1,-8 -8v-80a8,8 0,0 1,8 -8z" />
+    <path android:fillColor="#FF0B1520" android:pathData="M96,41h128v84h-128z" />
+    <path android:fillColor="#FF2E86DE" android:pathData="M140,131h40v8h-40z" />
+    <path android:fillColor="#FF2E86DE" android:pathData="M120,139h80v6h-80z" />
+    <!-- oko -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M120,83c12,-18 28,-24 40,-24s28,6 40,24c-12,18 -28,24 -40,24s-28,-6 -40,-24z" />
+    <path android:fillColor="#FF2E86DE" android:pathData="M160,83m-13,0a13,13 0,1 1,26 0a13,13 0,1 1,-26 0" />
+    <path android:fillColor="#FF0B1520" android:pathData="M160,83m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+</vector>
