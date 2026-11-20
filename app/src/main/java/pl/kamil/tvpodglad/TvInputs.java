@@ -21,9 +21,11 @@ final class TvInputs {
         final String number;
         final String name;
         final String type;
+        final String inputId;
 
-        Channel(long id, String number, String name, String type) {
+        Channel(long id, String number, String name, String type, String inputId) {
             this.id = id;
+            this.inputId = inputId;
             this.number = number == null ? "" : number;
             this.name = name == null ? "" : name;
             this.type = type == null ? "" : type;
@@ -110,20 +112,60 @@ final class TvInputs {
     static List<Channel> channels(Context c, String inputId) {
         List<Channel> out = new ArrayList<>();
         if (inputId == null) return out;
-        String[] proj = {TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NUMBER,
-                TvContract.Channels.COLUMN_DISPLAY_NAME, TvContract.Channels.COLUMN_TYPE};
-        try (Cursor cur = c.getContentResolver().query(TvContract.buildChannelsUriForInput(inputId),
-                proj, null, null, null)) {
-            if (cur != null) {
-                while (cur.moveToNext()) {
-                    out.add(new Channel(cur.getLong(0), cur.getString(1), cur.getString(2), cur.getString(3)));
-                }
+        out.addAll(query(c, TvContract.buildChannelsUriForInput(inputId)));
+        if (out.isEmpty()) {
+            // Część TV zapisuje kanały pod innym id wejścia - szukamy w całej bazie
+            // kanałów z tej samej usługi (np. com.mediatek.tvinput/.dtv.TunerInputService/...).
+            String svc = inputId.contains("/") ? inputId.substring(0, inputId.lastIndexOf('/')) : inputId;
+            String pkg = inputId.contains("/") ? inputId.substring(0, inputId.indexOf('/')) : inputId;
+            List<Channel> all = allChannels(c);
+            for (Channel ch : all) if (ch.inputId != null && ch.inputId.startsWith(svc)) out.add(ch);
+            if (out.isEmpty()) {
+                for (Channel ch : all) if (ch.inputId != null && ch.inputId.startsWith(pkg)) out.add(ch);
             }
-        } catch (Exception e) {
-            Log.w(Config.TAG, "Brak dostępu do listy kanałów: " + e);
         }
         Collections.sort(out, (a, b) -> compareNumbers(a.number, b.number));
         return out;
+    }
+
+    /** Wszystkie kanały w systemowej bazie TvProvider (niezależnie od wejścia). */
+    static List<Channel> allChannels(Context c) {
+        return query(c, TvContract.Channels.CONTENT_URI);
+    }
+
+    private static List<Channel> query(Context c, android.net.Uri uri) {
+        List<Channel> out = new ArrayList<>();
+        String[] proj = {TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NUMBER,
+                TvContract.Channels.COLUMN_DISPLAY_NAME, TvContract.Channels.COLUMN_TYPE,
+                TvContract.Channels.COLUMN_INPUT_ID};
+        try (Cursor cur = c.getContentResolver().query(uri, proj, null, null, null)) {
+            if (cur != null) {
+                while (cur.moveToNext()) {
+                    out.add(new Channel(cur.getLong(0), cur.getString(1), cur.getString(2), cur.getString(3),
+                            cur.getString(4)));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(Config.TAG, "Brak dostępu do listy kanałów (" + uri + "): " + e);
+        }
+        return out;
+    }
+
+    /** JSON: wszystkie kanały w bazie (/tv/channels). */
+    static String channelsJson(Context c) {
+        List<Channel> all = allChannels(c);
+        boolean perm = c.checkSelfPermission("com.android.providers.tv.permission.READ_EPG_DATA")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        StringBuilder sb = new StringBuilder("{\"epgPermission\":").append(perm)
+                .append(",\"count\":").append(all.size()).append(",\"channels\":[");
+        for (int i = 0; i < Math.min(300, all.size()); i++) {
+            Channel ch = all.get(i);
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":").append(ch.id).append(",\"number\":").append(q(ch.number))
+                    .append(",\"name\":").append(q(ch.name)).append(",\"type\":").append(q(ch.type))
+                    .append(",\"input\":").append(q(ch.inputId)).append('}');
+        }
+        return sb.append("]}").toString();
     }
 
     /** Porównuje numery kanałów typu "1", "2", "10", "1-1". */

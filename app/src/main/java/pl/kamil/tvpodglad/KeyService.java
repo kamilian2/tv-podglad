@@ -78,6 +78,10 @@ public class KeyService extends AccessibilityService {
 
     /** Wywołanie z innego wątku (np. serwer HTTP). Zwraca status albo null, gdy usługa wyłączona. */
     static String command(String cmd) {
+        return command(cmd, null);
+    }
+
+    static String command(String cmd, String query) {
         KeyService s = instance;
         if (s == null) return null;
         final String[] result = new String[1];
@@ -90,6 +94,14 @@ public class KeyService extends AccessibilityService {
                     case "toggle": s.pip.toggle(); break;
                     case "next": s.pip.channelStep(1); break;
                     case "prev": s.pip.channelStep(-1); break;
+                    case "tune": {
+                        String ch = HttpServer.param(query, "ch");
+                        try {
+                            if (ch != null) s.pip.tuneManual(Long.parseLong(ch.trim()), HttpServer.param(query, "input"));
+                        } catch (NumberFormatException ignored) {
+                        }
+                        break;
+                    }
                     default: break;
                 }
                 result[0] = "{\"shown\":" + s.pip.isShown() + ",\"status\":" + TvInputs.q(s.pip.status())

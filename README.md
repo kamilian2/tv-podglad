@@ -31,6 +31,8 @@ Jeśli instalowałeś wcześniejszą wersję (z podglądem ekranu), możesz cofn
 ```
 http://IP_TV:8080/pip/toggle | show | hide | next | prev | status
 http://IP_TV:8080/tv/inputs     diagnostyka: wejścia i kanały
+http://IP_TV:8080/tv/channels   diagnostyka: wszystkie kanały w bazie systemu
+http://IP_TV:8080/pip/tune?ch=ID[&input=ID]   ręczne strojenie kanału (test)
 http://IP_TV:8080/              strona z przyciskami na telefon
 ```
 Port i opcjonalny klucz dostępu: `Config.java` (`PORT = 0` wyłącza serwer).

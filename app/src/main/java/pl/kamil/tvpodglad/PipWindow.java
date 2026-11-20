@@ -142,6 +142,7 @@ final class PipWindow {
             TvInputs.Channel ch = channels.get(chIndex);
             uri = TvContract.buildChannelUri(ch.id);
             name = ch.label();
+            if (ch.inputId != null && TvInputs.find(ctx, ch.inputId) != null) inputId = ch.inputId;
         } else {
             // brak listy kanałów (np. brak uprawnienia) - próbujemy wejścia "jako całości"
             uri = TvContract.buildChannelUriForPassthroughInput(inputId);
@@ -164,6 +165,21 @@ final class PipWindow {
         chIndex = ((chIndex < 0 ? 0 : chIndex) + delta % n + n) % n;
         Prefs.setChannel(ctx, channels.get(chIndex).id);
         tuneCurrent();
+    }
+
+    /** Ręczne strojenie (diagnostyka): kanał o danym id z bazy TvProvider. */
+    void tuneManual(long channelId, String input) {
+        if (!shown) show();
+        if (!shown || tv == null) return;
+        if (input != null && !input.isEmpty()) inputId = input;
+        Uri uri = TvContract.buildChannelUri(channelId);
+        status = "strojenie ręczne: " + uri + " na " + inputId;
+        showLabel("kanał id " + channelId);
+        try {
+            tv.tune(inputId, uri);
+        } catch (Exception e) {
+            status = "błąd strojenia: " + e;
+        }
     }
 
     void hide() {

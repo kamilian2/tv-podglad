@@ -10,8 +10,8 @@ android {
         applicationId 'pl.kamil.tvpodglad'
         minSdk 26          // Android 8.0 Oreo (Philips Android TV)
         targetSdk 28
-        versionCode 4
-        versionName '2.0.1'
+        versionCode 5
+        versionName '2.0.2'
     }
 
     compileOptions {

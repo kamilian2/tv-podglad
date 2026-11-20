@@ -16,7 +16,9 @@ import java.nio.charset.StandardCharsets;
 /**
  * Mały serwer HTTP do sterowania okienkiem (np. z Home Assistanta):
  *   /pip/toggle|show|hide|next|prev|status
+ *   /pip/tune?ch=ID[&input=ID]  ręczne strojenie (diagnostyka)
  *   /tv/inputs   diagnostyka: wejścia TV i kanały
+ *   /tv/channels diagnostyka: wszystkie kanały w bazie
  *   /            prosta strona z przyciskami
  */
 final class HttpServer extends Thread {
@@ -86,9 +88,11 @@ final class HttpServer extends Thread {
             }
 
             if (path.startsWith("/pip/")) {
-                String r = KeyService.command(path.substring(5));
+                String r = KeyService.command(path.substring(5), query);
                 if (r == null) send(out, 503, "application/json", "{\"error\":\"usluga przycisku wylaczona\"}");
                 else send(out, 200, "application/json; charset=utf-8", r);
+            } else if (path.equals("/tv/channels")) {
+                send(out, 200, "application/json; charset=utf-8", TvInputs.channelsJson(ctx));
             } else if (path.equals("/tv/inputs")) {
                 send(out, 200, "application/json; charset=utf-8", TvInputs.json(ctx));
             } else if (path.equals("/")) {
