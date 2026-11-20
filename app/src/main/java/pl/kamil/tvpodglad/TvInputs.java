@@ -1,0 +1,166 @@
+package pl.kamil.tvpodglad;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.media.tv.TvContract;
+import android.media.tv.TvInputInfo;
+import android.media.tv.TvInputManager;
+import android.util.Log;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+
+/** Wejścia TV (tuner, HDMI...) i kanały z systemowej bazy TvProvider. */
+final class TvInputs {
+    private TvInputs() {}
+
+    static final class Channel {
+        final long id;
+        final String number;
+        final String name;
+        final String type;
+
+        Channel(long id, String number, String name, String type) {
+            this.id = id;
+            this.number = number == null ? "" : number;
+            this.name = name == null ? "" : name;
+            this.type = type == null ? "" : type;
+        }
+
+        String label() {
+            return (number.isEmpty() ? "" : number + "  ") + name;
+        }
+    }
+
+    static List<TvInputInfo> inputs(Context c) {
+        TvInputManager m = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
+        if (m == null) return Collections.emptyList();
+        try {
+            return m.getTvInputList();
+        } catch (Exception e) {
+            Log.w(CaptureService.TAG, "getTvInputList", e);
+            return Collections.emptyList();
+        }
+    }
+
+    static TvInputInfo find(Context c, String id) {
+        if (id == null) return null;
+        for (TvInputInfo i : inputs(c)) if (i.getId().equals(id)) return i;
+        return null;
+    }
+
+    static String label(Context c, TvInputInfo i) {
+        CharSequence l = null;
+        try {
+            l = i.loadLabel(c);
+        } catch (Exception ignored) {
+        }
+        return (l == null ? i.getId() : l.toString()) + " [" + typeName(i.getType()) + "]";
+    }
+
+    static String typeName(int t) {
+        switch (t) {
+            case TvInputInfo.TYPE_TUNER: return "tuner";
+            case TvInputInfo.TYPE_HDMI: return "HDMI";
+            case TvInputInfo.TYPE_COMPOSITE: return "AV";
+            case TvInputInfo.TYPE_COMPONENT: return "YPbPr";
+            case TvInputInfo.TYPE_SCART: return "SCART";
+            case TvInputInfo.TYPE_VGA: return "VGA";
+            case TvInputInfo.TYPE_DVI: return "DVI";
+            case TvInputInfo.TYPE_DISPLAY_PORT: return "DP";
+            case TvInputInfo.TYPE_SVIDEO: return "S-Video";
+            default: return "inne(" + t + ")";
+        }
+    }
+
+    /** Wybór automatyczny: tuner naziemny, jeśli da się go rozpoznać, w przeciwnym razie pierwszy tuner. */
+    static String defaultTunerId(Context c) {
+        String firstTuner = null;
+        for (TvInputInfo i : inputs(c)) {
+            if (i.getType() != TvInputInfo.TYPE_TUNER) continue;
+            if (firstTuner == null) firstTuner = i.getId();
+            String s = (i.getId() + " " + label(c, i)).toLowerCase(Locale.ROOT);
+            if (s.contains("terr") || s.contains("dvb-t") || s.contains("dvbt") || s.contains("anten")
+                    || s.contains("naziem")) {
+                return i.getId();
+            }
+        }
+        return firstTuner;
+    }
+
+    static String effectiveInput(Context c) {
+        String id = Prefs.input(c);
+        if (id != null && find(c, id) != null) return id;
+        return defaultTunerId(c);
+    }
+
+    /** Kanały danego wejścia. Wymaga uprawnienia READ_EPG_DATA - bez niego zwraca pustą listę. */
+    static List<Channel> channels(Context c, String inputId) {
+        List<Channel> out = new ArrayList<>();
+        if (inputId == null) return out;
+        String[] proj = {TvContract.Channels._ID, TvContract.Channels.COLUMN_DISPLAY_NUMBER,
+                TvContract.Channels.COLUMN_DISPLAY_NAME, TvContract.Channels.COLUMN_TYPE};
+        try (Cursor cur = c.getContentResolver().query(TvContract.buildChannelsUriForInput(inputId),
+                proj, null, null, null)) {
+            if (cur != null) {
+                while (cur.moveToNext()) {
+                    out.add(new Channel(cur.getLong(0), cur.getString(1), cur.getString(2), cur.getString(3)));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(CaptureService.TAG, "Brak dostępu do listy kanałów: " + e);
+        }
+        Collections.sort(out, (a, b) -> compareNumbers(a.number, b.number));
+        return out;
+    }
+
+    /** Porównuje numery kanałów typu "1", "2", "10", "1-1". */
+    private static int compareNumbers(String a, String b) {
+        String[] pa = a.split("[^0-9]+");
+        String[] pb = b.split("[^0-9]+");
+        for (int i = 0; i < Math.max(pa.length, pb.length); i++) {
+            long x = i < pa.length ? parse(pa[i]) : -1;
+            long y = i < pb.length ? parse(pb[i]) : -1;
+            if (x != y) return Long.compare(x, y);
+        }
+        return a.compareTo(b);
+    }
+
+    private static long parse(String s) {
+        try {
+            return s.isEmpty() ? Long.MAX_VALUE : Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /** JSON z wejściami i kanałami - diagnostyka (/tv/inputs). */
+    static String json(Context c) {
+        StringBuilder sb = new StringBuilder("{\"selected\":").append(q(effectiveInput(c))).append(",\"inputs\":[");
+        boolean first = true;
+        for (TvInputInfo i : inputs(c)) {
+            if (!first) sb.append(',');
+            first = false;
+            List<Channel> ch = channels(c, i.getId());
+            sb.append("{\"id\":").append(q(i.getId()))
+                    .append(",\"label\":").append(q(label(c, i)))
+                    .append(",\"type\":").append(q(typeName(i.getType())))
+                    .append(",\"passthrough\":").append(i.isPassthroughInput())
+                    .append(",\"channels\":").append(ch.size())
+                    .append(",\"sample\":[");
+            for (int k = 0; k < Math.min(10, ch.size()); k++) {
+                if (k > 0) sb.append(',');
+                sb.append(q(ch.get(k).label() + " (id " + ch.get(k).id + ", " + ch.get(k).type + ")"));
+            }
+            sb.append("]}");
+        }
+        return sb.append("]}").toString();
+    }
+
+    static String q(String s) {
+        if (s == null) return "null";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+}

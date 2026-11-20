@@ -18,6 +18,8 @@ import java.nio.charset.StandardCharsets;
  *   /snapshot.jpg  pojedynczy zrzut ekranu
  *   /stream.mjpg   strumień MJPEG (przeglądarka, Home Assistant, VLC)
  *   /status        JSON ze stanem
+ *   /pip/toggle|show|hide|next|prev|status  okienko TV naziemnej
+ *   /tv/inputs     diagnostyka: wejścia TV i kanały
  */
 final class HttpServer extends Thread {
     private static final String TAG = CaptureService.TAG;
@@ -25,12 +27,14 @@ final class HttpServer extends Thread {
 
     private final int port;
     private final FrameStore store;
+    private final android.content.Context ctx;
     private volatile boolean stopped;
     private volatile ServerSocket serverSocket;
     private int activeStreams;
 
-    HttpServer(int port, FrameStore store) {
+    HttpServer(android.content.Context ctx, int port, FrameStore store) {
         super("http-server");
+        this.ctx = ctx.getApplicationContext();
         this.port = port;
         this.store = store;
         setDaemon(true);
@@ -106,6 +110,24 @@ final class HttpServer extends Thread {
                 case "/video":
                     socket.setSoTimeout(0);
                     sendStream(out);
+                    break;
+                case "/pip/toggle":
+                case "/pip/show":
+                case "/pip/hide":
+                case "/pip/next":
+                case "/pip/prev":
+                case "/pip/status": {
+                    String r = KeyService.command(path.substring(5));
+                    if (r == null) {
+                        sendText(out, 503, "application/json",
+                                "{\"error\":\"usluga ulatwien dostepu TV Podglad jest wylaczona\"}");
+                    } else {
+                        sendText(out, 200, "application/json", r);
+                    }
+                    break;
+                }
+                case "/tv/inputs":
+                    sendText(out, 200, "application/json; charset=utf-8", TvInputs.json(ctx));
                     break;
                 case "/status":
                     sendText(out, 200, "application/json", statusJson());

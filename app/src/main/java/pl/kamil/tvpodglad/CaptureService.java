@@ -101,7 +101,7 @@ public class CaptureService extends Service {
         virtualDisplay = projection.createVirtualDisplay("tv-podglad", capW, capH, m.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
 
-        server = new HttpServer(Config.PORT, FrameStore.get());
+        server = new HttpServer(this, Config.PORT, FrameStore.get());
         server.start();
         running = true;
         return START_NOT_STICKY;

@@ -64,3 +64,41 @@ adb shell am stopservice pl.kamil.tvpodglad/.CaptureService
 - **Netflix, Disney+, HBO Max, Prime Video i inne treści z DRM** będą czarne – system blokuje przechwytywanie chronionych warstw. YouTube, menu, launcher, aplikacje, gry zwykle działają.
 - **Tuner TV / HDMI** na Philipsie bywa renderowany na osobnej, chronionej warstwie sprzętowej – wtedy obraz z kanału lub HDMI też może być czarny (zależy od modelu i firmware).
 - Gdy TV przejdzie w czuwanie, klatki przestają przychodzić – na stronie zostaje ostatni obraz.
+
+---
+
+# Okienko TV naziemnej (od wersji 1.1)
+
+Oglądasz HDMI (PlayStation, dekoder satelitarny…), naciskasz wybrany przycisk pilota i w prawym dolnym rogu pojawia się okienko z kanałem z tunera naziemnego. Ponowne naciśnięcie chowa okienko.
+
+## Jednorazowa konfiguracja (adb z PC)
+```bat
+adb install -r app-debug.apk
+:: dostęp do listy kanałów
+adb shell pm grant pl.kamil.tvpodglad com.android.providers.tv.permission.READ_EPG_DATA
+:: włączenie usługi przechwytującej przycisk pilota
+adb shell settings put secure enabled_accessibility_services pl.kamil.tvpodglad/pl.kamil.tvpodglad.KeyService
+adb shell settings put secure accessibility_enabled 1
+```
+Uwaga: polecenie `enabled_accessibility_services` nadpisuje listę włączonych usług ułatwień dostępu. Jeśli masz inne, sprawdź je najpierw: `adb shell settings get secure enabled_accessibility_services` i dopisz po dwukropku. Usługę można też włączyć w TV: Ustawienia → Ułatwienia dostępu → „TV Podgląd – przycisk okienka TV”.
+
+## Ustawienia (aplikacja TV Podgląd na TV)
+- **Przycisk:** domyślnie niebieski (`PROG_BLUE`). „Przycisk: …” → naciśnij dowolny przycisk pilota, żeby go przypisać.
+- **Źródło:** automatycznie tuner naziemny albo ręczny wybór z listy wejść.
+- **Kanał:** kanał w okienku. Gdy okienko jest widoczne, CH+/CH− zmienia w nim kanał (zapamiętywany).
+- **Rozmiar** (mały/średni/duży) i **dźwięk z okienka** (domyślnie wyłączony, żeby nie mieszał się z HDMI).
+
+## Sterowanie z Home Assistanta / przeglądarki
+```
+http://IP_TV:8080/pip/toggle   pokaż/ukryj
+http://IP_TV:8080/pip/show     pokaż
+http://IP_TV:8080/pip/hide     ukryj
+http://IP_TV:8080/pip/next     następny kanał
+http://IP_TV:8080/pip/prev     poprzedni kanał
+http://IP_TV:8080/pip/status   stan okienka
+http://IP_TV:8080/tv/inputs    diagnostyka: wejścia i kanały widoczne dla aplikacji
+```
+(Serwer HTTP działa, gdy uruchomiony jest podgląd ekranu.)
+
+## Ograniczenie sprzętowe
+Okienko używa oficjalnego mechanizmu Android TV (`TvView`). Czy obraz z tunera może być wyświetlany **równocześnie** z HDMI, zależy od tego, czy procesor telewizora ma drugi dekoder wideo. Jeśli nie ma, możliwe skutki to czarne okienko z komunikatem, przełączenie głównego obrazu albo „Tuner niedostępny”. Stan widać w `/pip/status`.
